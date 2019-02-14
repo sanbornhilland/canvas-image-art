@@ -1,0 +1,308 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Tiler</title>
+  <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:700,300" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="uploader" class="drop-zone">
+    <h1>Add an image</h1>
+    <p>Upload or drop an image here to get started.</p>
+    <p id="uploader-warning" class="hide">That file type is not supported. Upload a JPG or a PNG</p>
+  </div>
+
+  <div id="main" class="hide">
+    <div id="src-img" class="panel">
+      <img>
+      <div class="panel-control">
+        <!-- <ul class="nav">
+          <li>
+            <button id="hide">
+              Hide
+            </button>
+          </li>
+        </ul> -->
+      </div>
+    </div>
+    <div id="controls" class="panel">
+      <div class="panel-content">
+        <label for="count">Count</label>
+        <input id="count" type="range" min="1" max="180" step="1" value="36">
+        <br/>
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="1" max="180" step="1" value="10">
+        <br/>
+        <label for="center-distance-x">Center Distance X</label>
+        <input id="center-distance-x" type="range" min="1" max="1000" step="1" value="100">
+        <br/>
+        <label for="center-distance-y">Center Distance Y</label>
+        <input id="center-distance-y" type="range" min="1" max="1000" step="1" value="100">
+      </div>
+    </div>
+    <div id="generated-img" class="panel">
+      <canvas></canvas>
+    </div>
+  </div>
+
+  <script>
+    const uploader = document.querySelector('#uploader')
+    const main = document.querySelector('#main')
+    const srcImgPanel = document.querySelector('#src-img')
+    // const srcImgNav = srcImgPanel.querySelector('.nav')
+    const img = srcImgPanel.querySelector('img')
+
+    const acceptedTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+    ]
+
+    const getFile = (event) => {
+      if (event.dataTransfer.items) {
+        if (event.dataTransfer.items.length > 1) {
+          console.warn('More than one file drop attemped. Only using the first')
+        }
+
+        if (event.dataTransfer.items[0].kind === 'file') {
+          return event.dataTransfer.items[0].getAsFile()
+        }
+      } else {
+        if (event.dataTransfer.files.length > 1) {
+          console.warn('More than one file drop attemped. Only using the first')
+        }
+
+        return event.dataTransfer.files[0]
+      }
+    }
+
+    uploader.addEventListener('dragenter', (event) => {
+      event.preventDefault()
+    })
+
+    uploader.addEventListener('dragover', (event) => {
+      event.preventDefault()
+    })
+
+    uploader.addEventListener('drop', (event) => {
+      event.preventDefault()
+
+      const file = getFile(event)
+
+      if (!file) {
+        return
+      }
+
+      if (!acceptedTypes.includes(file.type)) {
+        uploader.querySelector('#uploader-warning').classList.remove('hide')
+      } else {
+        uploader.classList.add('hide')
+        main.classList.remove('hide')
+        img.src = URL.createObjectURL(file)
+        img.addEventListener('load', window.init)
+      }
+    })
+
+    // srcImgNav.addEventListener('click', (event) => {
+    //   if (event.target.id === 'hide') {
+    //     srcImgPanel.style.marginLeft = `-${srcImgPanel.clientWidth + 100}px`
+    //   }
+    // })
+
+    const count = document.querySelector('#count')
+    const distance = document.querySelector('#distance')
+    const centerDistanceX = document.querySelector('#center-distance-x')
+    const centerDistanceY = document.querySelector('#center-distance-y')
+
+    const GlobalState = {
+      count: parseInt(count.value),
+      distance: parseInt(distance.value),
+      centerDistanceX: parseInt(centerDistanceX.value),
+      centerDistanceY: parseInt(centerDistanceY.value),
+      cutout: null,
+
+      _onChange() {},
+
+      set(prop, val) {
+        this[prop] = val
+        this._onChange(this)
+      },
+
+      onChange(callback) {
+        this._onChange = callback
+      },
+    }
+
+    count.addEventListener('input', (event) => {
+      GlobalState.set('count', parseInt(event.target.value))
+    })
+
+    distance.addEventListener('input', (event) => {
+      GlobalState.set('distance', parseInt(event.target.value))
+    })
+
+    centerDistanceX.addEventListener('input', (event) => {
+      GlobalState.set('centerDistanceX', parseInt(event.target.value))
+    })
+
+    centerDistanceY.addEventListener('input', (event) => {
+      GlobalState.set('centerDistanceY', parseInt(event.target.value))
+    })
+
+    function CutOut(points, image) {
+      this._points = points
+      this._image = image
+      this.sprite = document.createElement('canvas')
+
+      this._draw()
+    }
+
+    CutOut.prototype._draw = function _draw() {
+      const canvas = this.sprite
+      const image = this._image
+      canvas.width = this.getWidth()
+      canvas.height = this.getHeight()
+      const context = canvas.getContext('2d', { alpha: true })
+      const points = this.getPoints()
+
+      context.save()
+      context.beginPath()
+      context.moveTo(
+        points[0][0] - this.getX(),
+        points[0][1] - this.getY(),
+      )
+
+      for (let i = 1; i < points.length; i++) {
+        context.lineTo(
+          points[i][0] - this.getX(),
+          points[i][1] - this.getY(),
+        )
+      }
+
+      context.closePath()
+      context.clip()
+
+      context.drawImage(
+        image,
+        this.getX(),
+        this.getY(),
+        this.getWidth(),
+        this.getHeight(),
+        0,
+        0,
+        this.getWidth(),
+        this.getHeight(),
+      )
+
+      context.restore()
+    }
+
+    CutOut.prototype._getXCoords = function _getXCoords() {
+      return this._points.map(point => point[0])
+    }
+
+    CutOut.prototype._getYCoords = function _getYCoords() {
+      return this._points.map(point => point[1])
+    }
+
+    CutOut.prototype.getPoints = function getPoints() {
+      return [...this._points]
+    }
+
+    CutOut.prototype.getWidth = function getWidth() {
+      const x = this._getXCoords()
+
+      return Math.max(...x) - Math.min(...x)
+    }
+
+    CutOut.prototype.getHeight = function getHeight() {
+      const y = this._getYCoords()
+
+      return Math.max(...y) - Math.min(...y)
+    }
+
+    CutOut.prototype.getX = function getX() {
+      return Math.min(...this._getXCoords())
+    }
+
+    CutOut.prototype.getY = function getY() {
+      return Math.min(...this._getYCoords())
+    }
+
+    window.init = () => {
+      const img = document.querySelector('img')
+      const canvas = document.querySelector('canvas')
+      canvas.width = img.naturalHeight * 2
+      canvas.height = img.naturalHeight * 2
+      const context = canvas.getContext('2d')
+      const points = []
+      context.fillStyle = 'RGBA(238, 51, 252, 1.00)'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+
+      const draw = (cutout, { index, distance, centerDistanceX, centerDistanceY }) => {
+        context.save()
+
+        // context.globalCompositeOperation = 'overlay'
+
+        const x = canvas.width / 2
+        const y = canvas.height / 2
+        context.translate(x, y)
+        context.rotate((index * distance) * Math.PI / 180);
+        context.translate(-x, -y)
+
+        context.drawImage(
+          cutout.sprite,
+          0,
+          0,
+          cutout.getWidth(),
+          cutout.getHeight(),
+          (canvas.width / 2) - centerDistanceX,
+          (canvas.height / 2) - centerDistanceY,
+          cutout.getWidth(),
+          cutout.getHeight(),
+        )
+
+        context.restore()
+      }
+
+      GlobalState.onChange((state) => {
+        const { distance, centerDistanceX, centerDistanceY } = state
+
+        window.requestAnimationFrame(() => {
+          context.clearRect(0, 0, canvas.width, canvas.height)
+
+          for (let i = 0; i < state.count; i++) {
+            draw(state.cutout, {
+              index: i,
+              distance,
+              centerDistanceX,
+              centerDistanceY,
+            })
+          }
+        })
+      })
+
+      img.addEventListener('click', (event) => {
+        if (points.length >= 3) {
+          return
+        }
+
+        const x = (event.offsetX / event.target.width) * event.target.naturalWidth
+        const y = (event.offsetY / event.target.height) * event.target.naturalHeight
+
+        points.push([
+          Math.round(x),
+          Math.round(y),
+        ])
+
+        if (points.length > 2) {
+          GlobalState.set('cutout', new CutOut(points, img))
+        }
+      })
+    }
+
+  </script>
+</body>
+</html>
